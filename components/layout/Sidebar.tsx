@@ -4,7 +4,7 @@ import { usePathname } from "next/navigation";
 import { LayoutDashboard, List, Scissors, Lightbulb, ShieldCheck, Zap } from "lucide-react";
 
 const NAV = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/transactions", label: "Transactions", icon: List },
   { href: "/split", label: "Smart Split", icon: Scissors },
   { href: "/insights", label: "AI Insights", icon: Lightbulb },
