@@ -81,9 +81,53 @@ export default function VoiceButton({ onTranscript, onInterim, disabled }: Props
     onInterim?.("");
   }
 
+  /**
+   * Pre-unlock audio during the user gesture (the tap).
+   * Chrome blocks audio.play() and speechSynthesis.speak() after async gaps.
+   * Touching the audio context NOW, while the gesture token is live, keeps
+   * audio permitted for the rest of the session — even after 5-second API calls.
+   */
+  function unlockAudio() {
+    // 1. Unlock HTMLAudioElement (needed for Sarvam WAV playback)
+    try {
+      const a = new Audio();
+      a.volume = 0;
+      a.play().catch(() => {});
+    } catch {}
+
+    // 2. Unlock Web Audio API context (belt-and-suspenders)
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const Ctx = window.AudioContext || (window as any).webkitAudioContext;
+      if (Ctx) {
+        const ctx = new Ctx() as AudioContext;
+        const buf = ctx.createBuffer(1, 1, 22050);
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        src.connect(ctx.destination);
+        src.start(0);
+        ctx.resume().catch(() => {});
+      }
+    } catch {}
+
+    // 3. Pre-warm speechSynthesis (fallback TTS path)
+    try {
+      if (window.speechSynthesis) {
+        const u = new SpeechSynthesisUtterance("");
+        window.speechSynthesis.speak(u);
+        setTimeout(() => window.speechSynthesis.cancel(), 50);
+      }
+    } catch {}
+  }
+
   function handleClick() {
     if (disabled) return;
-    state === "idle" ? startListening() : stopListening();
+    if (state === "idle") {
+      unlockAudio(); // must be synchronous in the click handler
+      startListening();
+    } else {
+      stopListening();
+    }
   }
 
   return (

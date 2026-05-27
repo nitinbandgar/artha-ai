@@ -1,39 +1,35 @@
 /**
- * speak.ts — Robust client-side TTS utility
+ * speak.ts — Robust client-side TTS
  *
- * Strategy:
- *  1. Try Sarvam Bulbul (Indian voices, best quality)
- *  2. If Sarvam fails / API key missing → browser speechSynthesis
- *  3. Browser TTS: explicitly pick the best available voice;
- *     fall back to any English voice so audio ALWAYS plays.
+ * Flow:
+ *  1. playTTS()  → call /api/tts (Sarvam Bulbul, best Indian voices)
+ *                  timeout after 8 s so we never hang
+ *  2. On any failure → browserSpeak() (window.speechSynthesis)
+ *     - waits for voices to load before speaking
+ *     - picks best voice for the language; falls back to English
+ *     - safety timeout so UI never stays stuck
  *
- * Fixes Chrome's known silent-failure bug:
- *  - 150ms delay after cancel() before speak()
- *  - Explicit voice selection so utterance is never dropped
+ * IMPORTANT: call unlockAudio() during a user-gesture (e.g. mic tap) BEFORE
+ * any async work, so Chrome allows audio.play() later.
+ * VoiceButton already does this automatically.
  */
 
-// Pick the best available voice for a language code
+// ── Voice picker ────────────────────────────────────────────────────────────
+
 function pickVoice(langCode: string): SpeechSynthesisVoice | null {
   const voices = window.speechSynthesis.getVoices();
   if (!voices.length) return null;
-
-  const prefix = langCode.split("-")[0]; // "hi" from "hi-IN"
-
-  // 1. Exact match (hi-IN)
-  let v = voices.find(v => v.lang === langCode);
-  if (v) return v;
-
-  // 2. Same language, any region (hi-*, ta-*, etc.)
-  v = voices.find(v => v.lang.startsWith(prefix + "-"));
-  if (v) return v;
-
-  // 3. Any English voice as fallback — audio still plays, accent differs
-  v = voices.find(v => v.lang.startsWith("en"));
-  if (v) return v;
-
-  // 4. Absolute fallback — first voice on the device
-  return voices[0] ?? null;
+  const prefix = langCode.split("-")[0];
+  return (
+    voices.find(v => v.lang === langCode) ??          // exact: hi-IN
+    voices.find(v => v.lang.startsWith(prefix + "-")) ?? // hi-*
+    voices.find(v => v.lang.startsWith("en")) ??      // any English
+    voices[0] ??                                       // absolute fallback
+    null
+  );
 }
+
+// ── Browser speechSynthesis ─────────────────────────────────────────────────
 
 export function browserSpeak(
   text: string,
@@ -47,9 +43,13 @@ export function browserSpeak(
 
   window.speechSynthesis.cancel();
 
-  // Chrome bug: calling speak() immediately after cancel() can silently no-op.
-  // A 150ms gap reliably fixes it.
-  setTimeout(() => {
+  let done = false;
+  const finish = () => { if (!done) { done = true; onEnd?.(); } };
+
+  // Safety net — unblock UI after 12 s regardless
+  const safety = setTimeout(finish, 12_000);
+
+  const doSpeak = () => {
     const utt = new SpeechSynthesisUtterance(text.slice(0, 300));
     utt.lang = langCode;
     utt.rate = 0.9;
@@ -57,29 +57,51 @@ export function browserSpeak(
     const voice = pickVoice(langCode);
     if (voice) utt.voice = voice;
 
-    utt.onend = () => onEnd?.();
-    utt.onerror = () => onEnd?.();
+    utt.onend  = () => { clearTimeout(safety); finish(); };
+    utt.onerror = () => { clearTimeout(safety); finish(); };
 
     window.speechSynthesis.speak(utt);
+  };
 
-    // Safety net: if onend never fires within 15s, unblock the UI
-    const timeout = setTimeout(() => onEnd?.(), 15_000);
-    utt.onend = () => { clearTimeout(timeout); onEnd?.(); };
-    utt.onerror = () => { clearTimeout(timeout); onEnd?.(); };
-  }, 150);
+  // Voices may not be ready on first render — wait for them
+  const voices = window.speechSynthesis.getVoices();
+  if (voices.length > 0) {
+    // Small gap after cancel() prevents Chrome's silent-drop bug
+    setTimeout(doSpeak, 120);
+  } else {
+    // Wait for voices to load (fires once on most browsers)
+    let fired = false;
+    const onLoaded = () => {
+      if (fired) return;
+      fired = true;
+      window.speechSynthesis.onvoiceschanged = null;
+      setTimeout(doSpeak, 120);
+    };
+    window.speechSynthesis.onvoiceschanged = onLoaded;
+    // Fallback in case onvoiceschanged never fires
+    setTimeout(onLoaded, 600);
+  }
 }
+
+// ── Sarvam TTS with browser fallback ───────────────────────────────────────
 
 export async function playTTS(
   text: string,
   langCode: string,
   onEnd?: () => void
 ): Promise<void> {
+  // 8-second timeout — Sarvam sometimes hangs on cold start
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8_000);
+
   try {
     const res = await fetch("/api/tts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text: text.slice(0, 400), languageCode: langCode }),
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
 
     if (!res.ok) {
       browserSpeak(text, langCode, onEnd);
@@ -92,12 +114,14 @@ export async function playTTS(
       const audio = new Audio(`data:audio/wav;base64,${data.audio}`);
       audio.onended = () => onEnd?.();
       audio.onerror = () => browserSpeak(text, langCode, onEnd);
+      // If autoplay still blocked (shouldn't be after unlockAudio) → browser fallback
       await audio.play().catch(() => browserSpeak(text, langCode, onEnd));
     } else {
-      // Sarvam returned no audio (API key missing, quota, etc.)
+      // Sarvam returned no audio (missing API key, quota exceeded, etc.)
       browserSpeak(text, langCode, onEnd);
     }
   } catch {
+    clearTimeout(timeoutId);
     browserSpeak(text, langCode, onEnd);
   }
 }
