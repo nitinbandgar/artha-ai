@@ -3,6 +3,7 @@ import { Geist } from "next/font/google";
 import "./globals.css";
 import Sidebar from "@/components/layout/Sidebar";
 import BottomNav from "@/components/layout/BottomNav";
+import { LanguageProvider } from "@/lib/language-context";
 
 const geist = Geist({ subsets: ["latin"] });
 
@@ -23,11 +24,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body className={`${geist.className} bg-gray-50 antialiased`}>
-        <Sidebar />
-        <main className="md:ml-60 min-h-screen pb-20 md:pb-0">
-          {children}
-        </main>
-        <BottomNav />
+        <LanguageProvider>
+          <Sidebar />
+          <main className="md:ml-60 min-h-screen pb-20 md:pb-0">
+            {children}
+          </main>
+          <BottomNav />
+        </LanguageProvider>
       </body>
     </html>
   );

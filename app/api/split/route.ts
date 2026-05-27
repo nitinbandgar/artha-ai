@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 export async function POST(req: NextRequest) {
-  const { message, contacts } = await req.json();
+  const { message, contacts, languageCode = "en-IN", languageLabel = "English" } = await req.json();
 
   const contactsList = contacts.map((c: {name: string; upiId: string; avatar: string}) =>
     `${c.name} (UPI: ${c.upiId}, avatar: ${c.avatar})`
@@ -17,9 +17,11 @@ ${contactsList}
 
 User request: "${message}"
 
+IMPORTANT: Write the "message" field in ${languageLabel} language (language code: ${languageCode}). Keep amounts and names in their original form.
+
 Respond with a JSON object in this EXACT format (no markdown, no code blocks, just raw JSON):
 {
-  "message": "friendly confirmation message explaining the split in 1-2 lines",
+  "message": "friendly confirmation message explaining the split in 1-2 lines IN ${languageLabel}",
   "splitData": {
     "total": <total amount as number>,
     "description": "<brief description>",

@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { ShieldCheck, Loader2, AlertTriangle, CheckCircle2, XCircle, Shield } from "lucide-react";
+import { useLanguage } from "@/lib/language-context";
 
 type RiskLevel = "low" | "medium" | "high";
 
@@ -20,6 +21,7 @@ const EXAMPLE_PAYMENTS = [
 ];
 
 export default function FraudPage() {
+  const { language } = useLanguage();
   const [form, setForm] = useState({ upiId: "", amount: "", name: "", note: "" });
   const [result, setResult] = useState<FraudResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -32,7 +34,7 @@ export default function FraudPage() {
       const res = await fetch("/api/fraud", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, languageCode: language.code, languageLabel: language.label }),
       });
       const data = await res.json();
       setResult(data);

@@ -4,8 +4,11 @@ import { getCategoryBreakdown, getMonthlySpending, UPCOMING_BILLS, TRANSACTIONS 
 import { formatCurrency, formatDateShort, getDaysUntil } from "@/lib/utils";
 import { Lightbulb, Loader2, RefreshCw, TrendingUp, TrendingDown, Calendar } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
+import { useLanguage } from "@/lib/language-context";
+import LanguageSelector from "@/components/ui/LanguageSelector";
 
 export default function InsightsPage() {
+  const { language } = useLanguage();
   const [narrative, setNarrative] = useState("");
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -27,6 +30,8 @@ export default function InsightsPage() {
           lastMonthSpend,
           categories: categories.slice(0, 5),
           upcomingBills: UPCOMING_BILLS,
+          languageCode: language.code,
+          languageLabel: language.label,
         }),
       });
       const data = await res.json();
@@ -39,14 +44,14 @@ export default function InsightsPage() {
     }
   }
 
-  useEffect(() => { loadNarrative(); }, []);
+  useEffect(() => { loadNarrative(); }, [language.code]);
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-6 space-y-5">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">AI Insights</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Your personalized financial story</p>
+          <p className="text-sm text-gray-500 mt-0.5">Your personalized financial story · {language.nativeLabel}</p>
         </div>
         <button
           onClick={loadNarrative}

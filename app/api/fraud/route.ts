@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 export async function POST(req: NextRequest) {
-  const { upiId, amount, name, note } = await req.json();
+  const { upiId, amount, name, note, languageCode = "en-IN", languageLabel = "English" } = await req.json();
 
   const prompt = `You are ArthaAI's fraud detection engine for Indian UPI payments. Analyze this payment request and assess its fraud risk.
 
@@ -21,13 +21,15 @@ Common Indian UPI fraud patterns to check:
 4. Payment notes mentioning lottery, KBC, prize, OTP, verification, refund claim
 5. UPI IDs with too many numbers or suspicious domain handles
 
+IMPORTANT: Write "summary", "flags", and "recommendation" in ${languageLabel} (language code: ${languageCode}). Keep UPI IDs, amounts, and technical terms in English.
+
 Respond with a JSON object (no markdown, raw JSON):
 {
   "riskLevel": "low" | "medium" | "high",
   "riskScore": <number 0-100>,
-  "summary": "<one sentence summary of the risk assessment>",
-  "flags": ["<specific risk factor 1>", "<risk factor 2>"],
-  "recommendation": "<clear actionable advice for the user>"
+  "summary": "<one sentence summary IN ${languageLabel}>",
+  "flags": ["<risk factor IN ${languageLabel}>"],
+  "recommendation": "<clear actionable advice IN ${languageLabel}>"
 }
 
 riskScore guide: 0-30 = low, 31-60 = medium, 61-100 = high

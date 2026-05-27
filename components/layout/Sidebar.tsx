@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LayoutDashboard, List, Scissors, Lightbulb, ShieldCheck, Zap } from "lucide-react";
+import LanguageSelector from "@/components/ui/LanguageSelector";
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -43,7 +44,11 @@ export default function Sidebar() {
           );
         })}
       </nav>
-      <div className="px-4 py-4 border-t border-gray-100">
+      <div className="px-4 py-4 border-t border-gray-100 space-y-3">
+        <div className="px-1">
+          <p className="text-xs text-gray-400 mb-1.5 font-medium">Language / भाषा</p>
+          <LanguageSelector />
+        </div>
         <div className="flex items-center gap-3 px-3 py-2">
           <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-sm font-bold text-indigo-700">N</div>
           <div>
