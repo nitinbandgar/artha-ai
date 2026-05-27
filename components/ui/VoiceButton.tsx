@@ -1,152 +1,116 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
-import { Mic, Loader2 } from "lucide-react";
+import { Mic, MicOff } from "lucide-react";
 import { useLanguage } from "@/lib/language-context";
 
 type Props = {
   onTranscript: (text: string) => void;
+  onInterim?: (text: string) => void;
   disabled?: boolean;
 };
 
-type State = "idle" | "recording" | "processing";
+type State = "idle" | "listening";
 
-// Pick the best supported MIME type for this browser
-function getSupportedMime(): string {
-  const types = [
-    "audio/webm;codecs=opus",
-    "audio/webm",
-    "audio/ogg;codecs=opus",
-    "audio/mp4",
-  ];
-  for (const t of types) {
-    if (MediaRecorder.isTypeSupported(t)) return t;
-  }
-  return "";
-}
-
-export default function VoiceButton({ onTranscript, disabled }: Props) {
+export default function VoiceButton({ onTranscript, onInterim, disabled }: Props) {
   const { language } = useLanguage();
   const [state, setState] = useState<State>("idle");
-  const [seconds, setSeconds] = useState(0);
-  const mediaRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef = useRef<any>(null);
 
-  // Auto-stop after 30s
+  // Stop recognition if language changes mid-session
   useEffect(() => {
-    if (state === "recording") {
-      timerRef.current = setInterval(() => setSeconds(s => s + 1), 1000);
-    } else {
-      if (timerRef.current) clearInterval(timerRef.current);
-      setSeconds(0);
+    recognitionRef.current?.stop();
+    setState("idle");
+  }, [language.code]);
+
+  function startListening() {
+    // @ts-expect-error - webkit prefix
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRec) {
+      alert("Please use Google Chrome for voice input.");
+      return;
     }
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [state]);
 
-  useEffect(() => {
-    if (seconds >= 30) stopRecording();
-  }, [seconds]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rec = new SpeechRec() as any;
+    rec.lang = language.code;          // hi-IN, mr-IN, ta-IN …
+    rec.continuous = false;
+    rec.interimResults = true;
+    rec.maxAlternatives = 1;
 
-  async function startRecording() {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mime = getSupportedMime();
-      const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-      chunksRef.current = [];
+    rec.onstart = () => setState("listening");
 
-      recorder.ondataavailable = e => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
-      };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rec.onresult = (e: any) => {
+      let interim = "";
+      let final = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript;
+        e.results[i].isFinal ? (final += t) : (interim += t);
+      }
+      if (interim && onInterim) onInterim(interim);
+      if (final) {
+        onInterim?.("");          // clear interim
+        onTranscript(final);     // fire auto-send
+      }
+    };
 
-      recorder.onstop = async () => {
-        stream.getTracks().forEach(t => t.stop());
-        setState("processing");
-
-        const mime = chunksRef.current[0]?.type || "audio/webm";
-        const ext = mime.includes("ogg") ? "ogg" : mime.includes("mp4") ? "mp4" : "webm";
-        const blob = new Blob(chunksRef.current, { type: mime });
-
-        try {
-          const formData = new FormData();
-          formData.append("file", blob, `audio.${ext}`);
-          formData.append("languageCode", language.code);
-
-          const res = await fetch("/api/stt", { method: "POST", body: formData });
-          const data = await res.json();
-          if (data.transcript?.trim()) {
-            onTranscript(data.transcript.trim());
-          } else {
-            onTranscript(""); // signal failure silently
-          }
-        } catch (err) {
-          console.error("STT error", err);
-          onTranscript("");
-        } finally {
-          setState("idle");
-        }
-      };
-
-      mediaRef.current = recorder;
-      recorder.start(250); // collect chunks every 250ms
-      setState("recording");
-    } catch (err) {
-      console.error("Mic access error", err);
-      alert(`Could not access microphone.\n\nPlease allow microphone permission in your browser settings and try again.`);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rec.onerror = (e: any) => {
+      console.error("Speech error:", e.error);
       setState("idle");
-    }
+      onInterim?.("");
+      if (e.error === "not-allowed")
+        alert("Microphone blocked. Allow it in Chrome → Settings → Privacy → Microphone.");
+      else if (e.error === "no-speech")
+        alert("No speech detected. Please try again.");
+    };
+
+    rec.onend = () => {
+      setState("idle");
+      onInterim?.("");
+    };
+
+    recognitionRef.current = rec;
+    rec.start();
   }
 
-  function stopRecording() {
-    if (mediaRef.current && mediaRef.current.state === "recording") {
-      mediaRef.current.stop();
-    }
+  function stopListening() {
+    recognitionRef.current?.stop();
+    setState("idle");
+    onInterim?.("");
   }
 
   function handleClick() {
-    if (disabled || state === "processing") return;
-    if (state === "idle") startRecording();
-    else if (state === "recording") stopRecording();
+    if (disabled) return;
+    state === "idle" ? startListening() : stopListening();
   }
 
   return (
     <button
       onClick={handleClick}
       disabled={disabled}
-      title={
-        state === "idle" ? `Tap to speak in ${language.nativeLabel}` :
-        state === "recording" ? "Tap to stop recording" :
-        "Processing your voice..."
-      }
-      className={`relative flex flex-col items-center justify-center w-16 h-16 rounded-full transition-all duration-200 shadow-lg
-        ${state === "recording"
-          ? "bg-red-500 shadow-red-200"
-          : state === "processing"
-          ? "bg-indigo-400 shadow-indigo-200"
-          : "bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200"
-        }
-        ${disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer active:scale-95"}
+      title={state === "listening" ? "Tap to stop" : `Speak in ${language.nativeLabel}`}
+      className={`
+        relative flex flex-col items-center justify-center
+        w-14 h-14 rounded-full shrink-0
+        transition-all duration-200 active:scale-95
+        ${state === "listening"
+          ? "bg-red-500 shadow-lg shadow-red-200"
+          : "bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200"}
+        ${disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}
       `}
     >
-      {/* Pulse rings when recording */}
-      {state === "recording" && (
+      {state === "listening" && (
         <>
-          <span className="absolute inset-0 rounded-full bg-red-400 animate-ping opacity-50" />
-          <span className="absolute -inset-2 rounded-full border-2 border-red-300 animate-pulse opacity-60" />
+          <span className="absolute inset-0 rounded-full bg-red-400 animate-ping opacity-40" />
+          <span className="absolute -inset-1.5 rounded-full border-2 border-red-300 animate-pulse opacity-50" />
         </>
       )}
-
-      {/* Icon */}
-      <div className="relative z-10 flex flex-col items-center gap-0.5">
-        {state === "processing"
-          ? <Loader2 size={22} className="text-white animate-spin" />
-          : <Mic size={22} className="text-white" />
-        }
-        {state === "recording" && (
-          <span className="text-[9px] text-white font-bold tabular-nums">
-            {String(Math.floor(seconds / 60)).padStart(2, "0")}:{String(seconds % 60).padStart(2, "0")}
-          </span>
-        )}
-      </div>
+      {state === "listening"
+        ? <MicOff size={22} className="text-white relative z-10" />
+        : <Mic    size={22} className="text-white relative z-10" />
+      }
     </button>
   );
 }
