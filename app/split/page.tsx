@@ -6,7 +6,7 @@ import { Send, Loader2, Scissors, CheckCircle2, Copy, Volume2 } from "lucide-rea
 import VoiceButton from "@/components/ui/VoiceButton";
 import LanguageSelector from "@/components/ui/LanguageSelector";
 import { useLanguage } from "@/lib/language-context";
-import { playTTS } from "@/lib/speak";
+import { playTTS, unlockAudio } from "@/lib/speak";
 
 type Message = { id: string; role: "user" | "assistant"; content: string; splitData?: SplitResult };
 type SplitResult = { total: number; description: string; splits: { name: string; upiId: string; amount: number; avatar: string }[] };
@@ -53,6 +53,7 @@ export default function SplitPage() {
   // ── Core send ──
   const send = useCallback(async (text: string) => {
     if (!text.trim() || loading) return;
+    unlockAudio(); // unlock before any await — covers typed messages + Enter key
     setMessages(prev => [...prev, { id: Date.now().toString(), role: "user", content: text }]);
     setInput("");
     setLoading(true);

@@ -7,7 +7,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import { useLanguage } from "@/lib/language-context";
 import LanguageSelector from "@/components/ui/LanguageSelector";
 import VoiceButton from "@/components/ui/VoiceButton";
-import { playTTS } from "@/lib/speak";
+import { playTTS, unlockAudio } from "@/lib/speak";
 
 type Insight = {
   headline: string;
@@ -81,6 +81,7 @@ export default function InsightsPage() {
   // TTS for the full summary (uses shared lib/speak.ts)
   async function speakInsight() {
     if (!insight) return;
+    unlockAudio(); // Play button IS a user gesture — unlock before await
     setSpeaking(true);
     const textToSpeak = `${insight.headline}. ${insight.bullets.join(". ")}. ${insight.tip}`;
     await playTTS(textToSpeak, language.code, () => setSpeaking(false));
@@ -94,6 +95,7 @@ export default function InsightsPage() {
   // Q&A — text or voice → answer + TTS
   const askQuestion = useCallback(async (question: string) => {
     if (!question.trim()) return;
+    unlockAudio(); // unlock before await — covers typed + voice Q&A
     setQaLoading(true);
     setQaAnswer("");
     setQaInput("");

@@ -4,7 +4,7 @@ import { ShieldCheck, Loader2, AlertTriangle, CheckCircle2, XCircle, Shield, Vol
 import { useLanguage } from "@/lib/language-context";
 import LanguageSelector from "@/components/ui/LanguageSelector";
 import VoiceButton from "@/components/ui/VoiceButton";
-import { playTTS } from "@/lib/speak";
+import { playTTS, unlockAudio } from "@/lib/speak";
 
 type RiskLevel = "low" | "medium" | "high";
 
@@ -54,6 +54,7 @@ export default function FraudPage() {
 
   async function check() {
     if (!form.upiId || !form.amount) return;
+    unlockAudio(); // Scan button IS a user gesture — unlock before await
     setLoading(true);
     setResult(null);
     try {
