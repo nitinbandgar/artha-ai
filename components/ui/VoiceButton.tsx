@@ -16,6 +16,8 @@ export default function VoiceButton({ onTranscript, onInterim, disabled }: Props
   const [state, setState] = useState<State>("idle");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
+  // Track the last interim text so we can send it if isFinal never fires
+  const lastInterimRef = useRef("");
 
   // Stop recognition if language changes mid-session
   useEffect(() => {
@@ -23,6 +25,35 @@ export default function VoiceButton({ onTranscript, onInterim, disabled }: Props
     setState("idle");
   }, [language.code]);
 
+  // ── Audio unlock ────────────────────────────────────────────────────────
+  // Must run synchronously inside a click handler (user-gesture context).
+  // Touches the audio system NOW so Chrome allows audio.play() later,
+  // even after 5+ seconds of async API calls.
+  function unlockAudio() {
+    // 1. Unlock HTMLAudioElement (Sarvam WAV playback)
+    try {
+      const a = new Audio();
+      a.volume = 0;
+      a.play().catch(() => {});
+    } catch {}
+
+    // 2. Unlock Web Audio API context
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const Ctx = window.AudioContext || (window as any).webkitAudioContext;
+      if (Ctx) {
+        const ctx = new Ctx() as AudioContext;
+        const buf = ctx.createBuffer(1, 1, 22050);
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        src.connect(ctx.destination);
+        src.start(0);
+        ctx.resume().catch(() => {});
+      }
+    } catch {}
+  }
+
+  // ── Speech recognition ──────────────────────────────────────────────────
   function startListening() {
     // @ts-expect-error - webkit prefix
     const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -31,9 +62,11 @@ export default function VoiceButton({ onTranscript, onInterim, disabled }: Props
       return;
     }
 
+    lastInterimRef.current = "";
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rec = new SpeechRec() as any;
-    rec.lang = language.code;          // hi-IN, mr-IN, ta-IN …
+    rec.lang = language.code;   // hi-IN, mr-IN, ta-IN …
     rec.continuous = false;
     rec.interimResults = true;
     rec.maxAlternatives = 1;
@@ -48,10 +81,14 @@ export default function VoiceButton({ onTranscript, onInterim, disabled }: Props
         const t = e.results[i][0].transcript;
         e.results[i].isFinal ? (final += t) : (interim += t);
       }
-      if (interim && onInterim) onInterim(interim);
+      if (interim) {
+        lastInterimRef.current = interim;
+        onInterim?.(interim);
+      }
       if (final) {
-        onInterim?.("");          // clear interim
-        onTranscript(final);     // fire auto-send
+        lastInterimRef.current = "";
+        onInterim?.("");
+        onTranscript(final);
       }
     };
 
@@ -60,15 +97,24 @@ export default function VoiceButton({ onTranscript, onInterim, disabled }: Props
       console.error("Speech error:", e.error);
       setState("idle");
       onInterim?.("");
+      lastInterimRef.current = "";
       if (e.error === "not-allowed")
         alert("Microphone blocked. Allow it in Chrome → Settings → Privacy → Microphone.");
-      else if (e.error === "no-speech")
-        alert("No speech detected. Please try again.");
+      // Removed "no-speech" alert — it was annoying; just silently reset
     };
 
     rec.onend = () => {
       setState("idle");
-      onInterim?.("");
+      // isFinal sometimes never fires (network hiccup, pause timeout).
+      // If we have unsent interim text, send it now so the message goes through.
+      const pending = lastInterimRef.current.trim();
+      lastInterimRef.current = "";
+      if (pending) {
+        onInterim?.("");
+        onTranscript(pending);
+      } else {
+        onInterim?.("");
+      }
     };
 
     recognitionRef.current = rec;
@@ -81,49 +127,10 @@ export default function VoiceButton({ onTranscript, onInterim, disabled }: Props
     onInterim?.("");
   }
 
-  /**
-   * Pre-unlock audio during the user gesture (the tap).
-   * Chrome blocks audio.play() and speechSynthesis.speak() after async gaps.
-   * Touching the audio context NOW, while the gesture token is live, keeps
-   * audio permitted for the rest of the session — even after 5-second API calls.
-   */
-  function unlockAudio() {
-    // 1. Unlock HTMLAudioElement (needed for Sarvam WAV playback)
-    try {
-      const a = new Audio();
-      a.volume = 0;
-      a.play().catch(() => {});
-    } catch {}
-
-    // 2. Unlock Web Audio API context (belt-and-suspenders)
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const Ctx = window.AudioContext || (window as any).webkitAudioContext;
-      if (Ctx) {
-        const ctx = new Ctx() as AudioContext;
-        const buf = ctx.createBuffer(1, 1, 22050);
-        const src = ctx.createBufferSource();
-        src.buffer = buf;
-        src.connect(ctx.destination);
-        src.start(0);
-        ctx.resume().catch(() => {});
-      }
-    } catch {}
-
-    // 3. Pre-warm speechSynthesis (fallback TTS path)
-    try {
-      if (window.speechSynthesis) {
-        const u = new SpeechSynthesisUtterance("");
-        window.speechSynthesis.speak(u);
-        setTimeout(() => window.speechSynthesis.cancel(), 50);
-      }
-    } catch {}
-  }
-
   function handleClick() {
     if (disabled) return;
     if (state === "idle") {
-      unlockAudio(); // must be synchronous in the click handler
+      unlockAudio(); // synchronous — must happen in click handler
       startListening();
     } else {
       stopListening();
