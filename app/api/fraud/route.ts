@@ -89,11 +89,20 @@ Respond with a JSON object (no markdown, raw JSON):
 
   try {
     const parsed = JSON.parse(text.trim());
+
+    // ── Hard override: if our keyword detector flagged this, ignore Claude's riskLevel ──
+    // Claude occasionally hedges to "medium" even with explicit instructions.
+    // Server-side enforcement is the only reliable approach.
+    if (scamKeyword) {
+      parsed.riskLevel = "high";
+      parsed.riskScore = Math.max(parsed.riskScore ?? 0, 90);
+    }
+
     return NextResponse.json(parsed);
   } catch {
     return NextResponse.json({
-      riskLevel: "medium",
-      riskScore: 50,
+      riskLevel: scamKeyword ? "high" : "medium",
+      riskScore: scamKeyword ? 90 : 50,
       summary: "Unable to fully analyze. Exercise caution.",
       flags: ["Analysis incomplete"],
       recommendation: "Verify the payee independently before sending money.",
