@@ -46,9 +46,22 @@ export default function FraudPage() {
   const [speaking, setSpeaking] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Play any text via Sarvam TTS
+  // ── Browser TTS fallback ──
+  function browserSpeak(text: string, langCode: string, onEnd?: () => void) {
+    if (typeof window === "undefined" || !window.speechSynthesis) { onEnd?.(); return; }
+    window.speechSynthesis.cancel();
+    const utt = new SpeechSynthesisUtterance(text.slice(0, 300));
+    utt.lang = langCode;
+    utt.rate = 0.92;
+    utt.onend = () => onEnd?.();
+    utt.onerror = () => onEnd?.();
+    window.speechSynthesis.speak(utt);
+  }
+
+  // Play any text — Sarvam first, browser fallback
   const speakText = useCallback(async (text: string) => {
     setSpeaking(true);
+    const done = () => setSpeaking(false);
     try {
       const res = await fetch("/api/tts", {
         method: "POST",
@@ -60,11 +73,15 @@ export default function FraudPage() {
         if (audioRef.current) audioRef.current.pause();
         const audio = new Audio(`data:audio/wav;base64,${data.audio}`);
         audioRef.current = audio;
-        audio.onended = () => setSpeaking(false);
-        audio.onerror = () => setSpeaking(false);
-        audio.play();
-      } else setSpeaking(false);
-    } catch { setSpeaking(false); }
+        audio.onended = done;
+        audio.onerror = () => browserSpeak(text, language.code, done);
+        audio.play().catch(() => browserSpeak(text, language.code, done));
+      } else {
+        browserSpeak(text, language.code, done);
+      }
+    } catch {
+      browserSpeak(text, language.code, done);
+    }
   }, [language.code]);
 
   async function check() {

@@ -78,30 +78,52 @@ export default function InsightsPage() {
 
   useEffect(() => { loadInsight(); }, [loadInsight]);
 
-  // TTS for the full summary
-  async function speakInsight() {
-    if (!insight) return;
-    setSpeaking(true);
-    const textToSpeak = `${insight.headline}. ${insight.bullets.join(". ")}. ${insight.tip}`;
+  // ── Browser TTS fallback ──
+  function browserSpeak(text: string, langCode: string, onEnd?: () => void) {
+    if (typeof window === "undefined" || !window.speechSynthesis) { onEnd?.(); return; }
+    window.speechSynthesis.cancel();
+    const utt = new SpeechSynthesisUtterance(text.slice(0, 300));
+    utt.lang = langCode;
+    utt.rate = 0.92;
+    utt.onend = () => onEnd?.();
+    utt.onerror = () => onEnd?.();
+    window.speechSynthesis.speak(utt);
+  }
+
+  // ── Shared TTS: Sarvam first, browser fallback ──
+  async function playTTS(text: string, langCode: string, onEnd?: () => void) {
     try {
       const res = await fetch("/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: textToSpeak.slice(0, 450), languageCode: language.code }),
+        body: JSON.stringify({ text: text.slice(0, 450), languageCode: langCode }),
       });
       const data = await res.json();
       if (data.audio) {
         if (audioRef.current) audioRef.current.pause();
         const audio = new Audio(`data:audio/wav;base64,${data.audio}`);
         audioRef.current = audio;
-        audio.onended = () => setSpeaking(false);
-        audio.onerror = () => setSpeaking(false);
-        audio.play();
-      } else setSpeaking(false);
-    } catch { setSpeaking(false); }
+        audio.onended = () => onEnd?.();
+        audio.onerror = () => browserSpeak(text, langCode, onEnd);
+        audio.play().catch(() => browserSpeak(text, langCode, onEnd));
+      } else {
+        browserSpeak(text, langCode, onEnd);
+      }
+    } catch {
+      browserSpeak(text, langCode, onEnd);
+    }
+  }
+
+  // TTS for the full summary
+  async function speakInsight() {
+    if (!insight) return;
+    setSpeaking(true);
+    const textToSpeak = `${insight.headline}. ${insight.bullets.join(". ")}. ${insight.tip}`;
+    await playTTS(textToSpeak, language.code, () => setSpeaking(false));
   }
 
   function stopSpeaking() {
+    window.speechSynthesis?.cancel();
     audioRef.current?.pause();
     setSpeaking(false);
   }
@@ -120,20 +142,8 @@ export default function InsightsPage() {
       });
       const data = await res.json();
       setQaAnswer(data.answer);
-
       // Auto-speak the answer
-      const ttsRes = await fetch("/api/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: data.answer.slice(0, 400), languageCode: language.code }),
-      });
-      const ttsData = await ttsRes.json();
-      if (ttsData.audio) {
-        if (audioRef.current) audioRef.current.pause();
-        const audio = new Audio(`data:audio/wav;base64,${ttsData.audio}`);
-        audioRef.current = audio;
-        audio.play();
-      }
+      await playTTS(data.answer, language.code);
     } catch {
       setQaAnswer("Sorry, could not answer that. Please try again.");
     } finally {

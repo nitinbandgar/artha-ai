@@ -10,9 +10,9 @@ export async function POST(req: NextRequest) {
     languageCode = "en-IN", languageLabel = "English"
   } = await req.json();
 
-  const prompt = `You are ArthaAI, an intelligent Indian financial companion. Analyze this user's UPI spending data and return a structured JSON summary.
+  const prompt = `LANGUAGE RULE (ABSOLUTE — NEVER BREAK): ALL text fields (headline, bullets, tip) MUST be written entirely in ${languageLabel}. Never use English unless ${languageLabel} is English. Use native script: Devanagari for Hindi/Marathi, Tamil script for Tamil, Telugu script for Telugu, Bengali script for Bengali. App names (Swiggy, Zomato, Netflix) and ₹ amounts stay as-is.
 
-IMPORTANT: Write ALL text fields in ${languageLabel} (language code: ${languageCode}). Keep numbers, ₹ amounts, and app names (Swiggy, Zomato, etc.) as-is.
+You are ArthaAI, an intelligent Indian financial companion. Analyze this user's UPI spending data and return a structured JSON summary.
 
 User Data:
 - This month's spending: ₹${thisMonthSpend.toLocaleString("en-IN")}

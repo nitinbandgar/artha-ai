@@ -43,9 +43,22 @@ export default function SplitPage() {
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
-  // ── TTS via Sarvam ──
+  // ── Browser TTS fallback — works without Sarvam, no autoplay restriction ──
+  function browserSpeak(text: string, langCode: string, onEnd: () => void) {
+    if (typeof window === "undefined" || !window.speechSynthesis) { onEnd(); return; }
+    window.speechSynthesis.cancel();
+    const utt = new SpeechSynthesisUtterance(text.slice(0, 300));
+    utt.lang = langCode;
+    utt.rate = 0.92;
+    utt.onend = onEnd;
+    utt.onerror = onEnd;
+    window.speechSynthesis.speak(utt);
+  }
+
+  // ── TTS: Sarvam first, browser speechSynthesis as fallback ──
   const speakText = useCallback(async (text: string, msgId: string) => {
     setSpeakingId(msgId);
+    const done = () => setSpeakingId(null);
     try {
       const res = await fetch("/api/tts", {
         method: "POST",
@@ -55,11 +68,15 @@ export default function SplitPage() {
       const data = await res.json();
       if (data.audio) {
         const audio = new Audio(`data:audio/wav;base64,${data.audio}`);
-        audio.onended = () => setSpeakingId(null);
-        audio.onerror = () => setSpeakingId(null);
-        audio.play();
-      } else setSpeakingId(null);
-    } catch { setSpeakingId(null); }
+        audio.onended = done;
+        audio.onerror = () => browserSpeak(text, language.code, done);
+        audio.play().catch(() => browserSpeak(text, language.code, done));
+      } else {
+        browserSpeak(text, language.code, done);
+      }
+    } catch {
+      browserSpeak(text, language.code, done);
+    }
   }, [language.code]);
 
   // ── Core send ──

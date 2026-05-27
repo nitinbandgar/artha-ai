@@ -6,7 +6,9 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 export async function POST(req: NextRequest) {
   const { upiId, amount, name, note, languageCode = "en-IN", languageLabel = "English" } = await req.json();
 
-  const prompt = `You are ArthaAI's fraud detection engine for Indian UPI payments. Analyze this payment request and assess its fraud risk.
+  const prompt = `LANGUAGE RULE (ABSOLUTE — NEVER BREAK): Write "summary", "flags", and "recommendation" entirely in ${languageLabel}. Do NOT use English unless ${languageLabel} is English. Use native script: Devanagari for Hindi/Marathi, Tamil for Tamil, Telugu for Telugu, Bengali for Bengali. UPI IDs, amounts (₹), and technical terms may stay in English.
+
+You are ArthaAI's fraud detection engine for Indian UPI payments. Analyze this payment request and assess its fraud risk.
 
 Payment details:
 - UPI ID: ${upiId}
@@ -20,8 +22,6 @@ Common Indian UPI fraud patterns to check:
 3. Very small amounts (₹1-10) used in lottery/prize scams to "verify"
 4. Payment notes mentioning lottery, KBC, prize, OTP, verification, refund claim
 5. UPI IDs with too many numbers or suspicious domain handles
-
-IMPORTANT: Write "summary", "flags", and "recommendation" in ${languageLabel} (language code: ${languageCode}). Keep UPI IDs, amounts, and technical terms in English.
 
 Respond with a JSON object (no markdown, raw JSON):
 {

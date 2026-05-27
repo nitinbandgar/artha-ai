@@ -10,18 +10,18 @@ export async function POST(req: NextRequest) {
     `${c.name} (UPI: ${c.upiId}, avatar: ${c.avatar})`
   ).join("\n");
 
-  const prompt = `You are ArthaAI's smart bill-splitting assistant for Indian UPI payments. Parse the user's request and calculate bill splits.
+  const prompt = `LANGUAGE RULE (ABSOLUTE — NEVER BREAK): You MUST write the "message" field entirely in ${languageLabel}. Do NOT use English unless ${languageLabel} is English. Use the native script: Devanagari for Hindi/Marathi, Tamil script for Tamil, Telugu script for Telugu, Bengali script for Bengali. App names (Swiggy, Zomato, UPI) and ₹ amounts may remain unchanged.
+
+You are ArthaAI's smart bill-splitting assistant for Indian UPI payments. Parse the user's request and calculate bill splits.
 
 Available contacts:
 ${contactsList}
 
 User request: "${message}"
 
-IMPORTANT: Write the "message" field in ${languageLabel} language (language code: ${languageCode}). Keep amounts and names in their original form.
-
 Respond with a JSON object in this EXACT format (no markdown, no code blocks, just raw JSON):
 {
-  "message": "friendly confirmation message explaining the split in 1-2 lines IN ${languageLabel}",
+  "message": "friendly confirmation in ${languageLabel} — 1-2 sentences in ${languageLabel} script",
   "splitData": {
     "total": <total amount as number>,
     "description": "<brief description>",
