@@ -1,9 +1,10 @@
 "use client";
-import { useState, useRef, useCallback } from "react";
-import { ShieldCheck, Loader2, AlertTriangle, CheckCircle2, XCircle, Shield, Volume2, Mic } from "lucide-react";
+import { useState, useCallback } from "react";
+import { ShieldCheck, Loader2, AlertTriangle, CheckCircle2, XCircle, Shield, Volume2 } from "lucide-react";
 import { useLanguage } from "@/lib/language-context";
 import LanguageSelector from "@/components/ui/LanguageSelector";
 import VoiceButton from "@/components/ui/VoiceButton";
+import { playTTS } from "@/lib/speak";
 
 type RiskLevel = "low" | "medium" | "high";
 
@@ -44,44 +45,11 @@ export default function FraudPage() {
   const [result, setResult] = useState<FraudResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [speaking, setSpeaking] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // ── Browser TTS fallback ──
-  function browserSpeak(text: string, langCode: string, onEnd?: () => void) {
-    if (typeof window === "undefined" || !window.speechSynthesis) { onEnd?.(); return; }
-    window.speechSynthesis.cancel();
-    const utt = new SpeechSynthesisUtterance(text.slice(0, 300));
-    utt.lang = langCode;
-    utt.rate = 0.92;
-    utt.onend = () => onEnd?.();
-    utt.onerror = () => onEnd?.();
-    window.speechSynthesis.speak(utt);
-  }
-
-  // Play any text — Sarvam first, browser fallback
+  // Play any text — Sarvam first, browser fallback (via lib/speak.ts)
   const speakText = useCallback(async (text: string) => {
     setSpeaking(true);
-    const done = () => setSpeaking(false);
-    try {
-      const res = await fetch("/api/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: text.slice(0, 400), languageCode: language.code }),
-      });
-      const data = await res.json();
-      if (data.audio) {
-        if (audioRef.current) audioRef.current.pause();
-        const audio = new Audio(`data:audio/wav;base64,${data.audio}`);
-        audioRef.current = audio;
-        audio.onended = done;
-        audio.onerror = () => browserSpeak(text, language.code, done);
-        audio.play().catch(() => browserSpeak(text, language.code, done));
-      } else {
-        browserSpeak(text, language.code, done);
-      }
-    } catch {
-      browserSpeak(text, language.code, done);
-    }
+    await playTTS(text, language.code, () => setSpeaking(false));
   }, [language.code]);
 
   async function check() {
@@ -121,7 +89,7 @@ export default function FraudPage() {
   function fill(example: typeof EXAMPLE_PAYMENTS[0]) {
     setForm({ upiId: example.upiId, amount: example.amount, name: example.name, note: "" });
     setResult(null);
-    if (audioRef.current) audioRef.current.pause();
+    window.speechSynthesis?.cancel();
     setSpeaking(false);
   }
 

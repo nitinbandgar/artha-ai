@@ -1,12 +1,13 @@
 "use client";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { getCategoryBreakdown, getMonthlySpending, UPCOMING_BILLS, TRANSACTIONS } from "@/lib/mock-data";
 import { formatCurrency, formatDateShort, getDaysUntil } from "@/lib/utils";
-import { RefreshCw, Volume2, Loader2, Mic, Send, TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { RefreshCw, Volume2, Loader2, Send, TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import { useLanguage } from "@/lib/language-context";
 import LanguageSelector from "@/components/ui/LanguageSelector";
 import VoiceButton from "@/components/ui/VoiceButton";
+import { playTTS } from "@/lib/speak";
 
 type Insight = {
   headline: string;
@@ -38,7 +39,6 @@ export default function InsightsPage() {
   const [qaInput, setQaInput] = useState("");
   const [qaAnswer, setQaAnswer] = useState("");
   const [qaLoading, setQaLoading] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const categories   = getCategoryBreakdown("2026-05");
   const thisMonthSpend = getMonthlySpending("2026-05");
@@ -78,43 +78,7 @@ export default function InsightsPage() {
 
   useEffect(() => { loadInsight(); }, [loadInsight]);
 
-  // ── Browser TTS fallback ──
-  function browserSpeak(text: string, langCode: string, onEnd?: () => void) {
-    if (typeof window === "undefined" || !window.speechSynthesis) { onEnd?.(); return; }
-    window.speechSynthesis.cancel();
-    const utt = new SpeechSynthesisUtterance(text.slice(0, 300));
-    utt.lang = langCode;
-    utt.rate = 0.92;
-    utt.onend = () => onEnd?.();
-    utt.onerror = () => onEnd?.();
-    window.speechSynthesis.speak(utt);
-  }
-
-  // ── Shared TTS: Sarvam first, browser fallback ──
-  async function playTTS(text: string, langCode: string, onEnd?: () => void) {
-    try {
-      const res = await fetch("/api/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: text.slice(0, 450), languageCode: langCode }),
-      });
-      const data = await res.json();
-      if (data.audio) {
-        if (audioRef.current) audioRef.current.pause();
-        const audio = new Audio(`data:audio/wav;base64,${data.audio}`);
-        audioRef.current = audio;
-        audio.onended = () => onEnd?.();
-        audio.onerror = () => browserSpeak(text, langCode, onEnd);
-        audio.play().catch(() => browserSpeak(text, langCode, onEnd));
-      } else {
-        browserSpeak(text, langCode, onEnd);
-      }
-    } catch {
-      browserSpeak(text, langCode, onEnd);
-    }
-  }
-
-  // TTS for the full summary
+  // TTS for the full summary (uses shared lib/speak.ts)
   async function speakInsight() {
     if (!insight) return;
     setSpeaking(true);
@@ -124,7 +88,6 @@ export default function InsightsPage() {
 
   function stopSpeaking() {
     window.speechSynthesis?.cancel();
-    audioRef.current?.pause();
     setSpeaking(false);
   }
 
@@ -142,7 +105,7 @@ export default function InsightsPage() {
       });
       const data = await res.json();
       setQaAnswer(data.answer);
-      // Auto-speak the answer
+      // Auto-speak the answer (Sarvam → browser fallback)
       await playTTS(data.answer, language.code);
     } catch {
       setQaAnswer("Sorry, could not answer that. Please try again.");

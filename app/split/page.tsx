@@ -6,6 +6,7 @@ import { Send, Loader2, Scissors, CheckCircle2, Copy, Volume2 } from "lucide-rea
 import VoiceButton from "@/components/ui/VoiceButton";
 import LanguageSelector from "@/components/ui/LanguageSelector";
 import { useLanguage } from "@/lib/language-context";
+import { playTTS } from "@/lib/speak";
 
 type Message = { id: string; role: "user" | "assistant"; content: string; splitData?: SplitResult };
 type SplitResult = { total: number; description: string; splits: { name: string; upiId: string; amount: number; avatar: string }[] };
@@ -43,40 +44,10 @@ export default function SplitPage() {
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
-  // ── Browser TTS fallback — works without Sarvam, no autoplay restriction ──
-  function browserSpeak(text: string, langCode: string, onEnd: () => void) {
-    if (typeof window === "undefined" || !window.speechSynthesis) { onEnd(); return; }
-    window.speechSynthesis.cancel();
-    const utt = new SpeechSynthesisUtterance(text.slice(0, 300));
-    utt.lang = langCode;
-    utt.rate = 0.92;
-    utt.onend = onEnd;
-    utt.onerror = onEnd;
-    window.speechSynthesis.speak(utt);
-  }
-
-  // ── TTS: Sarvam first, browser speechSynthesis as fallback ──
+  // ── TTS: Sarvam first, browser speechSynthesis fallback (via lib/speak.ts) ──
   const speakText = useCallback(async (text: string, msgId: string) => {
     setSpeakingId(msgId);
-    const done = () => setSpeakingId(null);
-    try {
-      const res = await fetch("/api/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: text.slice(0, 400), languageCode: language.code }),
-      });
-      const data = await res.json();
-      if (data.audio) {
-        const audio = new Audio(`data:audio/wav;base64,${data.audio}`);
-        audio.onended = done;
-        audio.onerror = () => browserSpeak(text, language.code, done);
-        audio.play().catch(() => browserSpeak(text, language.code, done));
-      } else {
-        browserSpeak(text, language.code, done);
-      }
-    } catch {
-      browserSpeak(text, language.code, done);
-    }
+    await playTTS(text, language.code, () => setSpeakingId(null));
   }, [language.code]);
 
   // ── Core send ──
