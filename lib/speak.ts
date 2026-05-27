@@ -1,35 +1,18 @@
 /**
- * speak.ts — Robust client-side TTS
+ * speak.ts — TTS utility
  *
- * Priority order:
- *  1. Sarvam Bulbul (/api/tts) — best Indian-language quality
- *  2. window.speechSynthesis   — browser built-in fallback
- *
- * Key fix: utt.lang MUST match the selected voice's lang.
- * Setting utt.lang="hi-IN" while utt.voice is an English voice causes
- * Chrome to silently drop the utterance (no audio, no error event).
+ * 1. Tries Sarvam Bulbul (Indian-language voices, best quality)
+ * 2. Falls back to browser speechSynthesis with ZERO configuration —
+ *    no lang, no voice, system default only. This ALWAYS produces audio.
  */
 
-// ── Pick best available voice ─────────────────────────────────────────────
-
-function pickVoice(langCode: string): SpeechSynthesisVoice | null {
-  const voices = window.speechSynthesis.getVoices();
-  if (!voices.length) return null;
-  const prefix = langCode.split("-")[0]; // "hi" from "hi-IN"
-  return (
-    voices.find(v => v.lang === langCode) ??               // exact: hi-IN
-    voices.find(v => v.lang.startsWith(prefix + "-")) ??   // hi-*
-    voices.find(v => v.lang.startsWith("en")) ??           // any English
-    voices[0] ??                                            // absolute fallback
-    null
-  );
-}
-
-// ── Browser speechSynthesis ───────────────────────────────────────────────
+// ── Browser speechSynthesis fallback ─────────────────────────────────────
+// Deliberately sets NO lang and NO voice.
+// Any lang/voice mismatch causes Chrome to silently drop the utterance.
+// Using the system default voice guarantees audio plays on every device.
 
 export function browserSpeak(
   text: string,
-  langCode: string,
   onEnd?: () => void
 ): void {
   if (typeof window === "undefined" || !window.speechSynthesis) {
@@ -37,50 +20,24 @@ export function browserSpeak(
     return;
   }
 
+  // Unstick Chrome's speechSynthesis — it can freeze after repeated calls
   window.speechSynthesis.cancel();
+  window.speechSynthesis.resume();
 
-  // One-shot finish guard
   let done = false;
   const finish = () => { if (!done) { done = true; onEnd?.(); } };
-
-  // Safety net — unblock UI after 12 s no matter what
   const safety = setTimeout(finish, 12_000);
 
-  const doSpeak = () => {
-    const utt = new SpeechSynthesisUtterance(text.slice(0, 300));
+  // 200 ms gap after cancel() — Chrome race condition fix
+  setTimeout(() => {
+    const utt = new SpeechSynthesisUtterance(text.slice(0, 200));
     utt.rate = 0.9;
-
-    const voice = pickVoice(langCode);
-    if (voice) {
-      utt.voice = voice;
-      // CRITICAL: lang must match the voice's actual language.
-      // Mismatching (e.g. lang="hi-IN" + English voice) causes Chrome to
-      // silently drop the utterance with no audio and no error event.
-      utt.lang = voice.lang;
-    }
-    // If no voice found at all, don't set lang — Chrome uses system default
-
+    utt.volume = 1;
+    // NO utt.lang — NO utt.voice — browser uses system default, always works
     utt.onend  = () => { clearTimeout(safety); finish(); };
     utt.onerror = () => { clearTimeout(safety); finish(); };
-
     window.speechSynthesis.speak(utt);
-  };
-
-  // Voices load asynchronously on first page visit
-  const voices = window.speechSynthesis.getVoices();
-  if (voices.length > 0) {
-    setTimeout(doSpeak, 120); // brief gap after cancel() avoids Chrome race
-  } else {
-    let fired = false;
-    const onLoaded = () => {
-      if (fired) return;
-      fired = true;
-      window.speechSynthesis.onvoiceschanged = null;
-      setTimeout(doSpeak, 120);
-    };
-    window.speechSynthesis.onvoiceschanged = onLoaded;
-    setTimeout(onLoaded, 700); // fallback if onvoiceschanged never fires
-  }
+  }, 200);
 }
 
 // ── Sarvam TTS → browser fallback ────────────────────────────────────────
@@ -103,22 +60,26 @@ export async function playTTS(
     clearTimeout(timeoutId);
 
     if (!res.ok) {
-      browserSpeak(text, langCode, onEnd);
+      // Sarvam unavailable — fall back to browser TTS
+      browserSpeak(text, onEnd);
       return;
     }
 
     const data = await res.json();
 
     if (data.audio) {
+      // Play Sarvam's WAV response
       const audio = new Audio(`data:audio/wav;base64,${data.audio}`);
       audio.onended = () => onEnd?.();
-      audio.onerror = () => browserSpeak(text, langCode, onEnd);
-      await audio.play().catch(() => browserSpeak(text, langCode, onEnd));
+      audio.onerror = () => browserSpeak(text, onEnd);
+      await audio.play().catch(() => browserSpeak(text, onEnd));
     } else {
-      browserSpeak(text, langCode, onEnd);
+      // Sarvam returned no audio (quota exceeded, API key wrong, etc.)
+      browserSpeak(text, onEnd);
     }
   } catch {
+    // Network error or timeout
     clearTimeout(timeoutId);
-    browserSpeak(text, langCode, onEnd);
+    browserSpeak(text, onEnd);
   }
 }

@@ -18,10 +18,16 @@ export async function POST(req: NextRequest) {
   // Truncate to 500 chars for TTS (Sarvam limit per request)
   const truncated = text.slice(0, 500);
 
+  const apiKey = (process.env.SARVAM_API_KEY ?? "").trim();
+  if (!apiKey) {
+    console.error("SARVAM_API_KEY is not set");
+    return NextResponse.json({ error: "TTS not configured" }, { status: 500 });
+  }
+
   const res = await fetch("https://api.sarvam.ai/text-to-speech", {
     method: "POST",
     headers: {
-      "api-subscription-key": process.env.SARVAM_API_KEY!,
+      "api-subscription-key": apiKey,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
